@@ -6,6 +6,7 @@ import MySQLdb
 #url stuff
 PREFIX_URL = 'http://finance.yahoo.com/q/ao?s='
 SUFFIX_URL = '+Analyst+Opinion'
+NUM_RETRIES = 10
 #ticker stuff
 TICKER_FILE = 'tf.txt'
 TICKERS = []
@@ -80,6 +81,7 @@ Scrapes yahoo finance for relevant information
 def populate_information():
 	global TICKERS
 	global LAST_INDEX
+
 	#################### AUX METHODS ####################
 	#helper method that finds if a td element has info we need
 	def is_number(s):
@@ -88,6 +90,7 @@ def populate_information():
 	        return True
 	    except ValueError:
 	        return False
+
 	def contains_info(td):
 		if (not td) or (not td.string):
 			#print('Error null td')
@@ -108,6 +111,7 @@ def populate_information():
 				return name
 		print('Error finding name for: ' + ticker)
 
+	#finds the current stock price of the company
 	def find_cur(soup, ticker):
 		cur_element = soup.find('span', { 'class' : 'time_rtq_ticker' })
 		if cur_element and cur_element.span and cur_element.span.contents:
@@ -160,7 +164,7 @@ def populate_information():
 			info_value = None
 			for child in upper_node.children:
 				if info_key:
-					if not is_number(child.string):
+					if not is_number(child.string.replace(',','')):
 						continue 
 					info_value = float(child.string.replace(',',''))
 					info_map[TD_VALUES[info_key]] = info_value
@@ -171,19 +175,20 @@ def populate_information():
 					if child.string in key:
 						info_key = key
 						break
-
-
 		return info_map
 		#################### AUX METHODS ####################
 	
-	companies = [] # for batching
-	#start from last ticker
+	# companies list for batching
+	companies = [] 
+
+	#start from last ticker by reading last ticker file
 	if START_LAST_TICKER:
 		f = open(LAST_TICKER_FILE, 'r')
 		LAST_INDEX = int(f.readline().split('\n')[0])
 		TICKERS = TICKERS[LAST_INDEX:]
 
 	for ticker in TICKERS:
+		#make requests
 		url = PREFIX_URL + ticker + SUFFIX_URL
 		try:
 			req_obj = urllib2.urlopen(url).read()
@@ -200,14 +205,16 @@ def populate_information():
 			print('Error failed to soupify for ' + url)
 			continue
 
+		#if the len of soup is == 3, this means beautiful soup crashed, we need to retry the request
 		retries = 0
-		while len(soup) < 8 and retries < 10:
+		while len(soup) < 8 and retries < NUM_RETRIES:
 			retries = retries + 1
 			req_obj = urllib2.urlopen(url).read()
 			soup = BeautifulSoup(req_obj)
 			if retries > 1:
 				print('Retrying request to ' + ticker)
 
+		#find relevant information
 		name = find_name(soup, ticker)
 		cur = find_cur(soup, ticker)
 		info_map = find_info_map(soup)
@@ -224,9 +231,9 @@ def populate_information():
 
 		COMPANIES[ticker] = Company(name, ticker, info_map)
 		companies.append(COMPANIES[ticker])
-		COMPANIES[ticker].csv_dump()#for debug
+		COMPANIES[ticker].csv_dump()
 
-		#batching
+		#writing batches to database
 		if len(companies) > DB_BATCH_COUNT:
 			insert_into_stock_table(companies)
 			
@@ -249,14 +256,6 @@ def get_tickers():
 		#split because tickers are in form
 		#\u'tcker_name\n'
 		TICKERS.append(line.split('\n')[0])
-
-
-
-
-
-
-
-
 
 
 ####################DB STUFF####################
@@ -334,15 +333,6 @@ def insert_into_stock_table(companies):
 	# disconnect from server
 	db.close()
 ####################DB STUFF####################
-
-
-
-
-
-
-
-
-
 
 
 

@@ -2,6 +2,7 @@ import urllib2
 from bs4 import BeautifulSoup
 import time
 import MySQLdb
+import argparse
 
 #url stuff
 PREFIX_URL = 'http://finance.yahoo.com/q/ao?s='
@@ -184,13 +185,18 @@ def populate_information():
 	#start from last ticker by reading last ticker file
 	if START_LAST_TICKER:
 		f = open(LAST_TICKER_FILE, 'r')
-		LAST_INDEX = int(f.readline().split('\n')[0])
+		line = f.readline()
+		if line:
+			LAST_INDEX = int(line.split('\n')[0])
+		else:
+			LAST_INDEX = 0
 		TICKERS = TICKERS[LAST_INDEX:]
 
 	for ticker in TICKERS:
 		#make requests
 		url = PREFIX_URL + ticker + SUFFIX_URL
 		try:
+			print("URL: " + url)
 			req_obj = urllib2.urlopen(url).read()
 		except IOError:
 			print('Error opening request for: ' + ticker)
@@ -206,13 +212,16 @@ def populate_information():
 			continue
 
 		#if the len of soup is == 3, this means beautiful soup crashed, we need to retry the request
+		"""
 		retries = 0
 		while len(soup) < 8 and retries < NUM_RETRIES:
+			print("SOUP LENGTH" + str(len(soup)))
 			retries = retries + 1
 			req_obj = urllib2.urlopen(url).read()
 			soup = BeautifulSoup(req_obj)
 			if retries > 1:
 				print('Retrying request to ' + ticker)
+		"""
 
 		#find relevant information
 		name = find_name(soup, ticker)
@@ -334,10 +343,29 @@ def insert_into_stock_table(companies):
 	db.close()
 ####################DB STUFF####################
 
+####################CLI#########################
+def cli():
+	global LAST_INDEX
+	global START_LAST_TICKER
+	parser = argparse.ArgumentParser(description='Find great ways to lose money! Find Yahoo Finance\'s analysts\' opinions on lows, high, and currently performing stock prices')
+	parser.add_argument('-s', type=int, dest='start', choices=range(5200), \
+						help='0 for starting over, or # where to start')
+	parser.add_argument('-l', dest='last', type=bool, default=True, nargs='?', \
+						help='if last, will read off where the script left off')
+	args = parser.parse_args()
+	
+	if args and args.start:
+		LAST_INDEX = args.start
+		START_LAST_TICKER = False
+	else:
+		START_LAST_TICKER = True
+	print(args)
+####################CLI#########################
 
 
 def main():
 	#create_tables()
+	cli()
 	print_stock_info()
 	get_tickers()
 	populate_information()
